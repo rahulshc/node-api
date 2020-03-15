@@ -147,10 +147,14 @@ exports.updatePost = (req, res, next) => {
 //helper function
 const clearImage = (filePath, cb) => {
 //because we are inside controller we have to go one level up, _dirname is root directory in which app.js is existing
-    filePath = path.join(__dirname, '.', filePath);
+    filePath = path.join(__dirname, '..', filePath);
     //when new image uploaded clear the new image
     fs.unlink(filePath, err => {
-        err.statusCode = 500;
+        if(err){
+            err.statusCode = 500;
+        }
+
         return cb(err);
+        
     });
 }
