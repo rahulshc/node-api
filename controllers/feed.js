@@ -1,19 +1,29 @@
 const fs = require('fs');
 const path = require('path');
 const { validationResult } = require('express-validator');
-const Post = require('../models/posts');
+const Post = require('../models/post');
+const User = require('../models/user');
+let creator;
+exports.getPosts = async (req, res, next) => {
+    const currentPage = req.query.page||1;
+    const perPage = 2;
+    let totalItems;
 
-exports.getPosts = (req, res, next) => {
-    Post.find()
-    .then(posts=> {
-        res.status(200).json({message: 'Post fetched', posts: posts});
-    })
-    .catch(err=>{
+    try{
+        const totalItems = await Post.find({creator: req.userId}).countDocuments();
+        const posts = await Post.find({creator: req.userId}).skip((currentPage -1)*perPage).limit(perPage);
+        
+        res.status(200).json({message: 'Post fetched', posts: posts, totalItems: totalItems});
+    }
+    catch(err){
         if(!err.statusCode){
-            err.statusCode=500;
+            err.statusCode=500;//because it is some server side error
         }
         next(err);
-    })
+    }
+   
+   
+    
 };
 
 exports.createPost = (req,res,next) => {
@@ -31,7 +41,7 @@ exports.createPost = (req,res,next) => {
         throw error;
     }
     const imageUrl=req.file.path.replace("\\" ,"/");
-    console.log(imageUrl);
+    //console.log(imageUrl);
     const title=req.body.title;
     const content= req.body.content;
 
@@ -39,17 +49,26 @@ exports.createPost = (req,res,next) => {
         title: title,
         imageUrl: imageUrl,
         content: content, 
-        creator: {name: 'Rahul'}
+        creator: req.userId//mongoose will convert string to object id
     });
 
     post.save().then(result=>{
         //console.log(result);
         
         //201 means created the resource
+        return User.findById(req.userId);
+    })
+    .then(user => {
+        creator=user;
+        user.posts.push(post);
+        return user.save();
+    })
+    .then(result=> {
         res.status(201).json({
-        message: 'Post created successfully!',
-        post: result
-    });
+            message: 'Post created successfully!',
+            post: post,
+            creator: {_id: creator._id, name: creator.name, }
+        });
     })
     .catch(err=> {
         if(!err.statusCode){
@@ -94,7 +113,7 @@ exports.updatePost = (req, res, next) => {
     let imageUrl= req.body.image;
 
     if(req.file){
-        imageUrl=imageUrl=req.file.path.replace("\\" ,"/");
+        imageUrl=req.file.path.replace("\\" ,"/");
     }
 
     if(!imageUrl){
@@ -108,6 +127,12 @@ exports.updatePost = (req, res, next) => {
         if(!post){
             const  error = new Error('Could not find post');
             error.statusCode = 404;
+            throw error;//this error will be catched by catch block where we call next
+        }
+
+        if(post.creator.toString() !== req.userId){
+            const  error = new Error('Not authorized');
+            error.statusCode = 403;
             throw error;//this error will be catched by catch block where we call next
         }
         if(imageUrl !== post.imageUrl){
@@ -144,6 +169,56 @@ exports.updatePost = (req, res, next) => {
     });
 }
 
+exports.deletePost = (req, res, next) => {
+    const postId=req.params.postId;
+
+    Post.findById(postId)
+    .then(post => {
+        if(!post){
+            const  error = new Error('Could not find post');
+            error.statusCode = 404;
+            throw error;//this error will be catched by catch block where we call next
+        }
+
+        if(post.creator.toString() !== req.userId){
+            const  error = new Error('Not authorized');
+            error.statusCode = 403;
+            throw error;//this error will be catched by catch block where we call next
+        }
+
+        //check logged in user
+        clearImage(post.imageUrl, err => {
+            if(err) {
+                next(err);
+            }
+
+            Post.findByIdAndRemove(postId)
+            .then(result=> {
+                return User.findById(req.userId);
+            })
+            .then(user=> {
+                user.posts.pull(postId);
+                return user.save();
+            })
+            .then(result=> {
+                res.status(200).json({message: 'Deleted Post.'});
+            })
+            .catch(err=> {
+                if(!err.statusCode){
+                    err.statusCode=500;
+                }
+                next(err);
+            })
+        });
+
+    })
+    .catch(err=>{
+        if(!err.statusCode){
+            err.statusCode=500;
+        }
+        next(err);
+    })
+}
 //helper function
 const clearImage = (filePath, cb) => {
 //because we are inside controller we have to go one level up, _dirname is root directory in which app.js is existing
