@@ -10,8 +10,8 @@ exports.getPosts = async (req, res, next) => {
     let totalItems;
 
     try{
-        const totalItems = await Post.find({creator: req.userId}).countDocuments();
-        const posts = await Post.find({creator: req.userId}).skip((currentPage -1)*perPage).limit(perPage);
+        const totalItems = await Post.find().countDocuments();
+        const posts = await Post.find().skip((currentPage -1)*perPage).limit(perPage);
         
         res.status(200).json({message: 'Post fetched', posts: posts, totalItems: totalItems});
     }
